@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Foodsphere - Screen tests</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; background: #fbf6e9; color: #1f2a24; margin: 0; padding: 24px; display: grid; grid-template-columns: minmax(0,1fr) 420px; gap: 20px; }
+    h1 { color: #14532d; margin: 0 0 4px; }
+    #summary { font-size: 1.2rem; font-weight: 800; margin: 12px 0 16px; padding: 12px 16px; border-radius: 12px; background: #fff; border: 2px solid #ccc; }
+    #summary.ok { border-color: #15803d; color: #14532d; } #summary.bad { border-color: #b42318; color: #b42318; }
+    ul { list-style: none; padding: 0; } li { background: #fff; border: 1px solid #e3dcc6; border-radius: 10px; padding: 8px 12px; margin: 6px 0; }
+    .pass::before { content: "PASS  "; color: #15803d; font-weight: 800; } .fail::before { content: "FAIL  "; color: #b42318; font-weight: 800; }
+    .msg { display: block; color: #b42318; font-size: .85rem; margin-top: 4px; }
+    iframe { width: 420px; height: 760px; border: 2px solid #15803d; border-radius: 12px; background: #fff; position: sticky; top: 16px; }
+    .warn { background: #fff4d6; border: 1px solid #f0d79a; padding: 10px 14px; border-radius: 10px; }
+  </style>
+</head>
+<body>
+  <div>
+    <h1>Screen (end-to-end) tests</h1>
+    <p>This page opens the real app in the frame on the right and clicks its buttons automatically.</p>
+    <p class="warn" id="fileWarn" hidden><strong>Open this page through the local server</strong> (run <code>start.bat</code>, then visit <code>http://localhost:8000/tests/e2e.html</code>). Browsers block this test when a file is opened by double-click.</p>
+    <div id="summary">Running...</div>
+    <ul id="list"></ul>
+    <pre id="json" hidden></pre>
+  </div>
+  <iframe id="app" title="App under test" src="../index.html"></iframe>
+  <script>
+    const frame = document.getElementById('app');
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    let W, D;
+    const $ = s => D.querySelector(s);
+    const $$ = s => [...D.querySelectorAll(s)];
+    const txt = s => ($(s) ? $(s).textContent.trim() : '');
+    const num = s => { const m = String(s).replace(/,/g, '').match(/-?\d+(\.\d+)?/); return m ? parseFloat(m[0]) : NaN; };
+    const shown = s => { const e = $(s); return !!e && !e.hidden && !e.classList.contains('hidden') && getComputedStyle(e).display !== 'none'; };
+    const type = (sel, v) => { const e = $(sel); e.value = v; e.dispatchEvent(new W.Event('input', { bubbles: true })); };
+    const click = sel => $(sel).click();
+    const waitFor = async (fn, ms = 3000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (fn()) return true; await sleep(50); } throw new Error('timed out waiting for the page'); };
+    const ok = (c, m) => { if (!c) throw new Error(m || 'assertion failed'); };
+    const eq = (a, b, m) => { if (a !== b) throw new Error((m || 'eq') + ': expected ' + JSON.stringify(b) + ' but got ' + JSON.stringify(a)); };
+    async function fresh() { frame.src = '../index.html?x=' + Math.random(); await new Promise(r => frame.onload = r); W = frame.contentWindow; D = frame.contentDocument; await sleep(100); }
+    async function generate() { click('#btnGenerate'); await waitFor(() => shown('#resultsContent') && !$('#btnGenerate').disabled); }
+
+    const tests = [
+      ['App loads with the empty state and all scripts', async () => { ok(W.eval('typeof MealPlannerEngine') === 'object' && W.eval('typeof FoodIcons') === 'object'); ok(shown('#emptyHero')); ok(!shown('#resultsContent')); }],
+      ['Daily / Weekly toggle works', async () => { click('#toggleWeekly'); ok($('#toggleWeekly').classList.contains('active')); eq(txt('#budgetLabelText'), 'Weekly Budget'); click('#toggleDaily'); ok($('#toggleDaily').classList.contains('active')); eq(txt('#budgetLabelText'), 'Daily Budget'); }],
+      ['Budget presets fill the input', async () => { click('#budgetPresets .chip-btn:nth-child(2)'); eq($('#budgetInput').value, '250'); }],
+      ['Empty budget shows a friendly message', async () => { type('#budgetInput', ''); click('#btnGenerate'); await waitFor(() => shown('#budgetError')); ok(txt('#budgetError').includes('valid budget')); ok(!shown('#resultsContent')); }],
+      ['Negative budget is rejected', async () => { type('#budgetInput', '-50'); click('#btnGenerate'); await waitFor(() => shown('#budgetError')); ok(txt('#budgetError').includes('greater than ৳0')); }],
+      ['Zero budget is rejected', async () => { type('#budgetInput', '0'); click('#btnGenerate'); await waitFor(() => shown('#budgetError')); ok(txt('#budgetError').includes('greater than ৳0')); }],
+      ['Text budget is rejected', async () => { type('#budgetInput', 'abc'); click('#btnGenerate'); await waitFor(() => shown('#budgetError')); ok(txt('#budgetError').includes('valid amount')); }],
+      ['Very large budget is rejected', async () => { type('#budgetInput', '999999'); click('#btnGenerate'); await waitFor(() => shown('#budgetError')); ok(txt('#budgetError').includes('realistic')); }],
+      ['Adding and removing an ingredient tag works', async () => { type('#ingredientInput', 'rice'); click('#btnAddIngredient'); eq($$('#pantryTagsList .tag-item').length, 1); click('#pantryTagsList .tag-remove'); eq($$('#pantryTagsList .tag-item').length, 0); }],
+      ['Duplicate ingredients are blocked', async () => { type('#ingredientInput', 'rice'); click('#btnAddIngredient'); type('#ingredientInput', 'Rice'); click('#btnAddIngredient'); eq($$('#pantryTagsList .tag-item').length, 1); ok(txt('#pantryMessage').includes('already')); }],
+      ['Daily plan: 3 meals, totals match, budget maths correct', async () => {
+        type('#budgetInput', '300'); await generate();
+        eq($$('.meal-card').length, 3);
+        const kcal = $$('.meal-card').reduce((a, c) => a + parseFloat(c.querySelectorAll('.macro-tile strong')[0].textContent), 0);
+        eq(num(txt('#valCalories')), kcal, 'calories total equals the 3 meals');
+        ok(Math.abs(num(txt('#summaryCostAmount')) + num(txt('#summaryRemainingAmount')) - 300) < 0.01, 'cost + remaining = budget');
+      }],
+      ['Ingredients at home are excluded from the shopping list', async () => { if ($('.staple-chip[data-food="rice"]').getAttribute('aria-pressed') !== 'true') click('.staple-chip[data-food="rice"]'); ok(!$$('.shop-item-name').some(e => e.textContent.trim() === 'Rice')); }],
+      ['Weekly plan shows 7 days and weekly totals', async () => { click('#toggleWeekly'); type('#budgetInput', '1800'); await generate(); eq($$('.day-tab').length, 7); ok(num(txt('#valCalories')) > 7000); }],
+      ['Diabetic-friendly shows the medical disclaimer', async () => { $('input[name="preference"][value="diabetic-friendly"]').click(); ok(shown('#medicalNote')); ok(/not medical advice/i.test(txt('#medicalNote'))); }],
+      ['Too-low budget explains the problem', async () => { click('#toggleDaily'); type('#budgetInput', '20'); await generate(); ok(txt('#formStatusText').includes('too low')); ok(txt('#alternativesListContainer').includes('Minimum estimated')); }],
+      ['Shopping quantity controls update the cost', async () => { type('#budgetInput', '300'); await generate(); const before = num(txt('#shoppingGrandTotal')); click('.shop-row:first-child [data-action="inc"]'); ok(num(txt('#shoppingGrandTotal')) > before); }],
+      ['Purchased checkbox updates the totals', async () => { const total = num(txt('#shoppingGrandTotal')); $('.shop-row:first-child .shop-check').click(); ok(num(txt('#shopTotalBought')) > 0); ok(Math.abs(num(txt('#shoppingGrandTotal')) - total) < 0.01); }],
+      ['Reset all returns to a clean state', async () => { click('#btnReset'); eq($('#budgetInput').value, ''); eq($$('#pantryTagsList .tag-item').length, 0); ok(shown('#emptyHero')); ok(!shown('#resultsContent')); eq(txt('#summaryCostAmount'), '৳0.00 BDT'); ok($('#toggleDaily').classList.contains('active')); }]
+    ];
+
+    (async () => {
+      if (location.protocol === 'file:') document.getElementById('fileWarn').hidden = false;
+      const list = document.getElementById('list'); let pass = 0, fail = 0; const out = [];
+      // tests share one page load so that earlier steps (like "rice at home") carry on; each group starts fresh
+      try { await fresh(); } catch (e) { }
+      for (const [name, fn] of tests) {
+        const li = document.createElement('li');
+        try { if (!W || !D) throw new Error('Cannot open the app frame. Use the local server (see note above).'); await fn(); pass++; li.className = 'pass'; li.textContent = name; out.push({ name, passed: true }); }
+        catch (e) { fail++; li.className = 'fail'; li.textContent = name; const m = document.createElement('span'); m.className = 'msg'; m.textContent = e.message; li.appendChild(m); out.push({ name, passed: false, error: e.message }); }
+        list.appendChild(li);
+      }
+      const s = document.getElementById('summary'); s.textContent = pass + ' passed, ' + fail + ' failed (' + tests.length + ' tests)'; s.className = fail ? 'bad' : 'ok';
+      document.getElementById('json').textContent = JSON.stringify({ passed: pass, failed: fail, total: tests.length, tests: out });
+    })();
+  </script>
+</body>
+</html>

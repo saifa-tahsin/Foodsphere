@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Foodsphere - Engine tests</title>
+  <style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; background: #fbf6e9; color: #1f2a24; margin: 0; padding: 24px; }
+    h1 { color: #14532d; margin: 0 0 4px; }
+    #summary { font-size: 1.2rem; font-weight: 800; margin: 12px 0 16px; padding: 12px 16px; border-radius: 12px; background: #fff; border: 2px solid #ccc; }
+    #summary.ok { border-color: #15803d; color: #14532d; } #summary.bad { border-color: #b42318; color: #b42318; }
+    ul { list-style: none; padding: 0; max-width: 980px; } li { background: #fff; border: 1px solid #e3dcc6; border-radius: 10px; padding: 8px 12px; margin: 6px 0; }
+    .pass::before { content: "PASS  "; color: #15803d; font-weight: 800; } .fail::before { content: "FAIL  "; color: #b42318; font-weight: 800; }
+    .msg { display: block; color: #b42318; font-size: .85rem; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Engine tests</h1>
+  <p>Checks budget validation, pantry matching, cost and nutrition maths, weekly planning, shopping lists and more. Just open this page: no server needed.</p>
+  <div id="summary">Running...</div>
+  <ul id="list"></ul>
+  <pre id="json" hidden></pre>
+  <script src="../data/foods.js"></script>
+  <script src="../data/recipes.js"></script>
+  <script src="../js/plannerEngine.js"></script>
+  <script src="engine.tests.js"></script>
+  <script>
+    const jobs = [];
+    const t = {
+      test: (name, fn) => jobs.push({ name, fn }),
+      eq: (a, b, m) => { if (a !== b) throw new Error((m || 'eq') + ': expected ' + JSON.stringify(b) + ' but got ' + JSON.stringify(a)); },
+      ok: (c, m) => { if (!c) throw new Error('assertion failed' + (m ? ': ' + m : '')); },
+      near: (a, b, tol, m) => { if (!(Math.abs(a - b) <= tol)) throw new Error((m || 'near') + ': expected ~' + b + ' but got ' + a); }
+    };
+    defineEngineTests(t, MealPlannerEngine, BANGLADESHI_FOOD_DATABASE, BANGLADESHI_RECIPE_DATABASE);
+    let pass = 0, fail = 0; const list = document.getElementById('list'), out = [];
+    jobs.forEach(j => {
+      const li = document.createElement('li');
+      try { j.fn(); pass++; li.className = 'pass'; li.textContent = j.name; out.push({ name: j.name, passed: true }); }
+      catch (e) { fail++; li.className = 'fail'; li.textContent = j.name; const m = document.createElement('span'); m.className = 'msg'; m.textContent = e.message; li.appendChild(m); out.push({ name: j.name, passed: false, error: e.message }); }
+      list.appendChild(li);
+    });
+    const s = document.getElementById('summary');
+    s.textContent = pass + ' passed, ' + fail + ' failed (' + jobs.length + ' tests)';
+    s.className = fail ? 'bad' : 'ok';
+    document.getElementById('json').textContent = JSON.stringify({ passed: pass, failed: fail, total: jobs.length, tests: out });
+  </script>
+</body>
+</html>

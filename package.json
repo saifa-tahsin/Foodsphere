@@ -1,0 +1,11 @@
+{
+  "name": "foodsphere-budget-meal-planner",
+  "version": "1.0.0",
+  "description": "Foodsphere Nutritio Intelligence - Budget-Aware Meal Planner (static HTML/CSS/JS, no build step)",
+  "private": true,
+  "scripts": {
+    "start": "npx --yes http-server -p 8000 -o /index.html",
+    "test": "node tests/run-node.js"
+  },
+  "license": "UNLICENSED"
+}
